@@ -1,0 +1,12 @@
+razorpay==1.4.2
+google-generativeai==0.8.3
+pgmpy==0.1.26
+streamlit==1.36.0
+pandas==2.2.2
+sqlalchemy==2.0.31
+python-dotenv==1.0.1
+Faker==25.9.2
+networkx==3.3
+scipy==1.13.1
+scikit-learn==1.5.1
+numpy<2.0

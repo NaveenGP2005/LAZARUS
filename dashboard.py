@@ -484,6 +484,13 @@ with tab2:
                 + [OUTCOME_COLORS[o] for o in OUTCOME_LABELS]
             )
 
+            def hex_to_rgba(hex_str, opacity=0.33):
+                h = hex_str.lstrip('#')
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                return f"rgba({r}, {g}, {b}, {opacity})"
+
             sources, targets, values, link_colors = [], [], [], []
 
             for (arch, verdict), cnt in audit_df.groupby(["archetype","gate_verdict"]).size().items():
@@ -491,14 +498,14 @@ with tab2:
                     sources.append(ARCHETYPE_LIST.index(arch))
                     targets.append(len(ARCHETYPE_LIST) + VERDICT_LABELS.index(verdict))
                     values.append(int(cnt))
-                    link_colors.append(ARCH_COLORS.get(arch, "#94a3b8") + "55")
+                    link_colors.append(hex_to_rgba(ARCH_COLORS.get(arch, "#94a3b8"), 0.3))
 
             for (verdict, outcome), cnt in audit_df.groupby(["gate_verdict","outcome"]).size().items():
                 if verdict in VERDICT_LABELS and outcome in OUTCOME_LABELS:
                     sources.append(len(ARCHETYPE_LIST) + VERDICT_LABELS.index(verdict))
                     targets.append(len(ARCHETYPE_LIST) + len(VERDICT_LABELS) + OUTCOME_LABELS.index(outcome))
                     values.append(int(cnt))
-                    link_colors.append(VERDICT_COLORS.get(verdict, "#94a3b8") + "55")
+                    link_colors.append(hex_to_rgba(VERDICT_COLORS.get(verdict, "#94a3b8"), 0.3))
 
             fig_sankey = go.Figure(go.Sankey(
                 node=dict(

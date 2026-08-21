@@ -10,8 +10,17 @@ The output is always: {archetype, confidence, causal_factors, all_scores}
 """
 
 import sys
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    import google.generativeai as genai
+    _GEMINI_AVAILABLE = True
+except ImportError:
+    _GEMINI_AVAILABLE = False
 
 from config import ARCHETYPES
 from pgmpy.models import BayesianNetwork
@@ -166,9 +175,15 @@ _bn_model, _bn_inference = _build_bayesian_network()
 
 class Coroner:
     """
-    Classifies a failed payment into one of 8 archetypes.
+    Diagnoses the root cause (Archetype) of a payment failure.
     Returns a CoronerReport with archetype, confidence, and causal factors.
     """
+    def __init__(self):
+        self.api_key = os.getenv("GEMINI_API_KEY")
+        self.model = None
+        if _GEMINI_AVAILABLE and self.api_key and self.api_key != "YOUR_GEMINI_API_KEY_HERE":
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
     def classify(self, transaction: dict) -> dict:
         """
@@ -184,16 +199,29 @@ class Coroner:
         """
         failure_code = transaction.get("failure_code", "").upper()
 
-        # ── Layer 1: Deterministic rule engine (fast path)
+        # ── Layer 1: Neuro-Symbolic Rule Engine (fast path)
         if failure_code in ERROR_CODE_MAP:
             archetype = ERROR_CODE_MAP[failure_code]
             causal_factors = self._extract_causal_factors(transaction, archetype)
+            confidence = 0.95
+            method_name = "rule_engine"
+            
+            # Neuro-Symbolic Confidence Refinement
+            if self.model:
+                try:
+                    prompt = f"Analyze this payment failure. Error Code: {failure_code}. Mapped Heuristic Archetype: {archetype}. Risk Score: {transaction.get('risk_score')}. Failure Time: {transaction.get('failure_time')}. Based on these contextual factors, output a refined confidence score that this is the correct archetype. Respond ONLY with a float between 0.0 and 1.0 (e.g., 0.88)."
+                    resp = self.model.generate_content(prompt)
+                    confidence = float(resp.text.strip())
+                    method_name = "neuro_symbolic"
+                except Exception:
+                    pass
+
             return {
                 "archetype": archetype,
-                "confidence": 0.95,  # high confidence for known codes
+                "confidence": confidence,
                 "causal_factors": causal_factors,
-                "all_scores": {a: (0.95 if a == archetype else 0.007) for a in ARCHETYPE_LIST},
-                "method": "rule_engine",
+                "all_scores": {a: (confidence if a == archetype else (1.0-confidence)/(len(ARCHETYPE_LIST)-1)) for a in ARCHETYPE_LIST},
+                "method": method_name,
             }
 
         # ── Layer 2: Bayesian Network (ambiguous/unknown codes)

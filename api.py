@@ -21,7 +21,7 @@ app = FastAPI(
 agent = LazarusAgent()
 
 @app.post("/webhook/razorpay")
-async def razorpay_webhook(request: Request):
+async def razorpay_webhook(request: Request, shadow_mode: bool = False):
     """
     Ingests live payment.failed webhooks.
     """
@@ -66,7 +66,7 @@ async def razorpay_webhook(request: Request):
     
     # Process through LAZARUS pipeline
     # This automatically writes to the immutable SQLite audit trail.
-    result = agent.process(txn, verbose=True)
+    result = agent.process(txn, verbose=True, shadow_mode=shadow_mode)
     
     return {
         "status": "processed",

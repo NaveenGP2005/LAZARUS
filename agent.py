@@ -56,7 +56,7 @@ class LazarusAgent:
         print(f"   Strategist: {'Gemini Flash' if self.strategist.model else 'Expert fallback playbooks'}")
         print()
 
-    def process(self, transaction: dict, verbose: bool = True) -> dict:
+    def process(self, transaction: dict, verbose: bool = True, shadow_mode: bool = False) -> dict:
         """
         Process one failed transaction through all four layers.
         Returns a complete result dict including audit trail ID.
@@ -98,22 +98,22 @@ class LazarusAgent:
         recovered_paise = 0
 
         if gate_decision.verdict == ComplianceDecision.ALLOW:
-            execution_result = self.executor.execute(
-                transaction=transaction,
-                archetype=archetype,
-                action=proposed_action,
-                audit_id=0,  # placeholder — real ID assigned after audit write
-            )
-            # Update contact history
-            if self.compliance.allow_contact(archetype):
-                self._contact_history[customer_id] = self._contact_history.get(customer_id, 0) + 1
-                # Increment payment link counter
-                if execution_result.get("resource_type") == "payment_link":
-                    self.compliance.payment_links_created += 1
+            if shadow_mode:
+                execution_result = {"status": "success", "resource_type": "shadow_log", "notes": {"shadow": True, "action": proposed_action}}
+                outcome = "SHADOW_LOGGED"
+            else:
+                execution_result = self.executor.execute(
+                    transaction=transaction,
+                    archetype=archetype,
+                    action=proposed_action,
+                    audit_id=0,  # placeholder
+                )
+                if self.compliance.allow_contact(archetype):
+                    self._contact_history[customer_id] = self._contact_history.get(customer_id, 0) + 1
+                    if execution_result.get("resource_type") == "payment_link":
+                        self.compliance.payment_links_created += 1
 
-            # Simulate outcome using archetype recovery rates
-            outcome, recovered_paise = self._simulate_outcome(archetype, transaction)
-
+                outcome, recovered_paise = self._simulate_outcome(archetype, transaction)
         elif gate_decision.verdict == ComplianceDecision.DEFER:
             outcome = "DEFERRED"
         elif gate_decision.verdict == ComplianceDecision.BLOCK:

@@ -224,7 +224,7 @@ Respond ONLY with this JSON (no markdown fences):
             yield "", playbook
 
         except Exception as e:
-            print(f"  ⚠ Stream failed ({e}), using fallback")
+            print(f"  [!] Stream failed ({e}), using fallback")
             yield "", self._fallback(archetype, transaction)
 
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
@@ -284,7 +284,7 @@ Respond ONLY with valid JSON in this exact format:
             return raw
 
         except Exception as e:
-            print(f"  ⚠ Gemini call failed ({e}), using fallback playbook")
+            print(f"  [!] Gemini call failed ({e}), using fallback playbook")
             return self._fallback(archetype, txn)
 
     def _fallback(self, archetype: str, txn: dict) -> dict:

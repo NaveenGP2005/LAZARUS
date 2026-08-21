@@ -737,7 +737,12 @@ with tab7:
             full_response = ""
             for chunk in st.session_state.negotiator.send_message(chat_prompt):
                 full_response += chunk
-                response_placeholder.markdown(full_response + "▌")
+                # Live preview replacement while streaming
+                display_text = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
+                response_placeholder.markdown(display_text + "▌")
+            
+            # Final clean replacement
+            full_response = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
             response_placeholder.markdown(full_response)
             
         st.session_state.chat_messages.append({"role": "assistant", "content": full_response})

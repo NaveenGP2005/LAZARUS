@@ -4,6 +4,9 @@ Conversational sub-agent for interactive recovery.
 Helps overcome buyer hesitation and liquidity issues through dialogue.
 """
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 try:
     import google.generativeai as genai
     _GEMINI_AVAILABLE = True

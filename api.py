@@ -7,6 +7,10 @@ Run: uvicorn api:app --reload --port 8000
 from fastapi import FastAPI, Request
 import datetime
 import uuid
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from agent import LazarusAgent
 

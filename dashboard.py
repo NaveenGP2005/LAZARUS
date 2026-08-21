@@ -10,8 +10,12 @@ import streamlit as st
 import pandas as pd
 import json
 import sqlite3
+import os
 from pathlib import Path
 import sys
+from dotenv import load_dotenv
+
+load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (

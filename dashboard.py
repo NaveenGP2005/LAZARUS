@@ -244,12 +244,14 @@ if has_audit:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🔬 Coroner's Report",
     "📊 Recovery Dashboard",
     "🧮 Counterfactual Comparison",
     "📋 Audit Trail",
     "🎮 Live Sandbox",
+    "🏢 Merchant Intelligence",
+    "💬 Chat Simulator"
 ])
 
 # ──────────────────────────────────────────────────────────
@@ -651,6 +653,90 @@ END;
 # ── Sandbox tab
 with tab5:
     render_sandbox()
+
+# ── Merchant Intelligence tab
+with tab6:
+    st.markdown("### 🏢 Merchant Risk Intelligence")
+    st.markdown("Analyze failure archetypes and revenue at risk across the merchant portfolio. Actionable B2B insights.")
+    if has_audit and "merchant_id" in audit_df.columns:
+        import plotly.express as px
+        
+        st.markdown("#### Revenue at Risk by Merchant & Archetype")
+        st.caption("Treemap of transaction volume (INR) failing at checkout, grouped by merchant and underlying cause.")
+        df_tree = audit_df.groupby(["merchant_id", "archetype"])["amount_paise"].sum().reset_index()
+        df_tree["amount_inr"] = df_tree["amount_paise"] / 100
+        fig_tree = px.treemap(
+            df_tree, path=[px.Constant("All Merchants"), "merchant_id", "archetype"], values="amount_inr",
+            color="archetype",
+            color_discrete_map=ARCH_COLORS,
+            template="plotly_dark"
+        )
+        fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), paper_bgcolor="rgba(0,0,0,0)")
+        fig_tree.update_traces(marker=dict(cornerradius=5))
+        st.plotly_chart(fig_tree, use_container_width=True)
+        
+        st.markdown("#### Merchant Action Briefs")
+        merchants = []
+        for m_id, group in audit_df.groupby("merchant_id"):
+            total_fail = len(group)
+            recovered = len(group[group["outcome"] == "SUCCESS"])
+            top_arch = group["archetype"].mode()[0]
+            
+            # Simple heuristic recommendation based on domain model
+            if top_arch == "velocity_trap":
+                rec = "🔴 High fraud velocity. Increase 3D-secure stringency."
+            elif top_arch == "empty_vault":
+                rec = "🟡 Low liquidity. Enable Buy-Now-Pay-Later (BNPL) options."
+            elif top_arch == "dropped_signal":
+                rec = "🟢 High transient failures. Enable silent auto-retries."
+            elif top_arch == "limit_breaker":
+                rec = "🟡 High ticket limit drops. Route large baskets to Netbanking."
+            else:
+                rec = "Monitor archetype distribution."
+                
+            merchants.append({
+                "Merchant ID": m_id,
+                "Total Failures": total_fail,
+                "LAZARUS Recovery": f"{recovered/total_fail:.0%}",
+                "Top Failure Cause": top_arch,
+                "Automated Recommendation": rec
+            })
+        st.dataframe(pd.DataFrame(merchants), hide_index=True, use_container_width=True)
+    else:
+        st.info("Run `python -X utf8 batch_runner.py` to generate merchant data.")
+
+# ── Chat Simulator tab
+with tab7:
+    st.markdown("### 💬 The Negotiator (Interactive Chat)")
+    st.markdown("Simulate a conversational recovery flow (e.g., overcoming price friction or liquidity issues).")
+    
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Hi there! I noticed you had trouble completing your payment of ₹5000. Is there anything I can help you with?"}
+        ]
+        
+    if "negotiator" not in st.session_state:
+        from core.negotiator import NegotiatorAgent
+        st.session_state.negotiator = NegotiatorAgent(context={"amount_inr": 5000, "archetype": "hesitant_hand"})
+
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    if chat_prompt := st.chat_input("E.g., I don't get paid until Friday"):
+        st.session_state.chat_messages.append({"role": "user", "content": chat_prompt})
+        with st.chat_message("user"):
+            st.markdown(chat_prompt)
+            
+        with st.chat_message("assistant"):
+            response_placeholder = st.empty()
+            full_response = ""
+            for chunk in st.session_state.negotiator.send_message(chat_prompt):
+                full_response += chunk
+                response_placeholder.markdown(full_response + "▌")
+            response_placeholder.markdown(full_response)
+            
+        st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Footer

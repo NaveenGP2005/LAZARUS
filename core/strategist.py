@@ -92,6 +92,7 @@ if _PYDANTIC_AVAILABLE:
         customer_message_hint: str | None = None
         risk: str = "medium"
         source: str = "gemini"
+        strategy_variant: str = "standard"
 
         @field_validator("risk")
         @classmethod
@@ -124,6 +125,41 @@ class Strategist:
         if _GEMINI_AVAILABLE and self.api_key and self.api_key != "YOUR_GEMINI_API_KEY_HERE":
             genai.configure(api_key=self.api_key)
             self.model = genai.GenerativeModel("gemini-3.5-flash-lite")
+
+    def _select_strategy_variant(self, archetype: str) -> str:
+        """
+        Epsilon-Greedy Bandit:
+        15% of the time, explore a random variant.
+        85% of the time, exploit the highest-performing historical variant for this archetype.
+        """
+        import random
+        import sqlite3
+        from config import DB_PATH
+        
+        VARIANTS = ["assertive_reminder", "empathetic_discount", "urgency_deadline", "neutral_informational"]
+        
+        # 15% Exploration
+        if random.random() < 0.15:
+            return random.choice(VARIANTS)
+            
+        # 85% Exploitation
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                rows = conn.execute("""
+                    SELECT strategy_variant, 
+                           SUM(CASE WHEN outcome = 'SUCCESS' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as win_rate
+                    FROM lazarus_audit
+                    WHERE archetype = ? AND strategy_variant IS NOT NULL
+                    GROUP BY strategy_variant
+                    ORDER BY win_rate DESC
+                    LIMIT 1
+                """, (archetype,)).fetchone()
+                if rows and rows[0]:
+                    return rows[0]
+        except Exception:
+            pass
+            
+        return random.choice(VARIANTS)
 
     def generate_playbook(self, transaction: dict, coroner_result: dict) -> dict:
         """
@@ -158,14 +194,17 @@ class Strategist:
             return
 
         arch_cfg = ARCHETYPES[archetype]
+        variant = self._select_strategy_variant(archetype)
+        
         prompt = f"""You are LAZARUS, a payment recovery AI. Analyze this failed payment and respond ONLY with valid JSON.
 
 TRANSACTION: ₹{transaction.get('amount_paise',0)/100:.2f} | {transaction.get('payment_method')} | {transaction.get('failure_code')}
 ARCHETYPE: {archetype} — {arch_cfg['description']}
 CAUSAL FACTORS: {', '.join(coroner_result.get('causal_factors', []))}
+STRATEGY VARIANT: Adopt a "{variant}" tone/approach for the customer_message_hint.
 
 Respond ONLY with this JSON (no markdown fences):
-{{"chosen_action":"{arch_cfg['recovery_action']}","reasoning":"<2-3 specific sentences>","customer_message_hint":"<template or null>","risk":"<none|low|medium|high>"}}"""
+{{"chosen_action":"{arch_cfg['recovery_action']}","reasoning":"<2-3 sentences>","customer_message_hint":"<template>","risk":"<low|medium>","strategy_variant":"{variant}"}}"""
 
         full_text = ""
         try:
@@ -191,12 +230,14 @@ Respond ONLY with this JSON (no markdown fences):
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
         arch_cfg = ARCHETYPES[archetype]
-        prompt = f"""You are LAZARUS, a payment recovery AI agent. A failed payment has been classified.
+        variant = self._select_strategy_variant(archetype)
+        
+        prompt = f"""You are LAZARUS, an expert payment recovery strategist.
 
-TRANSACTION:
+TRANSACTION CONTEXT:
 - Amount: ₹{txn.get('amount_paise', 0) / 100:.2f}
-- Payment method: {txn.get('payment_method')}
-- Failure code: {txn.get('failure_code')}
+- Method: {txn.get('payment_method')}
+- Error Code: {txn.get('failure_code')}
 - Failure time: {txn.get('failure_time')}
 - First-time buyer: {txn.get('buyer', {}).get('is_first_time_buyer', False)}
 - Prior failures (7d): {txn.get('buyer', {}).get('prior_failures_7d', 0)}
@@ -210,6 +251,9 @@ ALLOWED RECOVERY ACTIONS FOR THIS ARCHETYPE:
 - Primary: {arch_cfg['recovery_action']}
 - Contact customer: {arch_cfg['contact_customer']}
 
+STRATEGY INSTRUCTION:
+Adopt a "{variant}" tone/approach for the customer_message_hint.
+
 Your task: Generate a precise recovery playbook. Be concise. The compliance gate will decide if this executes.
 
 Respond ONLY with valid JSON in this exact format:
@@ -217,7 +261,8 @@ Respond ONLY with valid JSON in this exact format:
   "chosen_action": "<action_slug>",
   "reasoning": "<2-3 sentences explaining why this specific action for this specific archetype>",
   "customer_message_hint": "<template message or null if no customer contact>",
-  "risk": "<none|low|high>"
+  "risk": "<none|low|high>",
+  "strategy_variant": "{variant}"
 }}"""
 
         try:
@@ -248,7 +293,8 @@ Respond ONLY with valid JSON in this exact format:
             "chosen_action": "manual_review",
             "reasoning": "Unknown archetype — escalate to manual review.",
             "customer_message_hint": None,
-            "risk": "unknown",
+            "risk": "medium",
         }))
         playbook["source"] = "fallback"
+        playbook["strategy_variant"] = "standard"
         return playbook

@@ -105,7 +105,7 @@ class LazarusAgent:
                 audit_id=0,  # placeholder — real ID assigned after audit write
             )
             # Update contact history
-            if self.compliance.compliance_rules_allow_contact(archetype):
+            if self.compliance.allow_contact(archetype):
                 self._contact_history[customer_id] = self._contact_history.get(customer_id, 0) + 1
                 # Increment payment link counter
                 if execution_result.get("resource_type") == "payment_link":
@@ -171,14 +171,6 @@ class LazarusAgent:
             return "FAILURE", 0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Compliance gate helper — add allow_contact check
-# ─────────────────────────────────────────────────────────────────────────────
-def _allow_contact(self, archetype: str) -> bool:
-    from config import ARCHETYPES
-    return ARCHETYPES.get(archetype, {}).get("contact_customer", False)
-
-ComplianceGate.compliance_rules_allow_contact = _allow_contact
 
 
 if __name__ == "__main__":

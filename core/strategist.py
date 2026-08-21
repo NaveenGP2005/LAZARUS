@@ -7,6 +7,7 @@ The compliance gate and executor own all financial actions.
 
 import os
 import json
+import time
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -74,11 +75,16 @@ FALLBACK_PLAYBOOKS = {
 }
 
 
+# Archetypes where action is 100% deterministic — calling Gemini wastes 4s per txn
+# dropped_signal: always silent_auto_retry. velocity_trap: always hold_and_escalate.
+GEMINI_SKIP_ARCHETYPES = {"dropped_signal", "velocity_trap"}
+
+
 class Strategist:
     """
     Generates a cause-specific recovery playbook for a classified archetype.
     Uses Gemini Flash if available; falls back to deterministic expert playbooks.
-    In both cases, output is advisory only — the compliance gate decides what executes.
+    Gemini is skipped for deterministic archetypes to save API quota and time.
     """
 
     def __init__(self, api_key: str | None = None):
@@ -86,7 +92,7 @@ class Strategist:
         self.model = None
         if _GEMINI_AVAILABLE and self.api_key and self.api_key != "YOUR_GEMINI_API_KEY_HERE":
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel("gemini-1.5-flash")
+            self.model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
     def generate_playbook(self, transaction: dict, coroner_result: dict) -> dict:
         """
@@ -101,10 +107,11 @@ class Strategist:
         """
         archetype = coroner_result["archetype"]
 
-        if self.model:
-            return self._call_gemini(transaction, coroner_result, archetype)
-        else:
+        # Skip Gemini for deterministic archetypes — action is always the same
+        if not self.model or archetype in GEMINI_SKIP_ARCHETYPES:
             return self._fallback(archetype, transaction)
+
+        return self._call_gemini(transaction, coroner_result, archetype)
 
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
@@ -139,6 +146,7 @@ Respond ONLY with valid JSON in this exact format:
 }}"""
 
         try:
+            time.sleep(4)  # respect free tier 15 RPM limit (60s / 15 = 4s per call)
             response = self.model.generate_content(prompt)
             text = response.text.strip()
             # Strip markdown code fences if present

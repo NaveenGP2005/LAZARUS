@@ -60,6 +60,8 @@ class AuditTrail:
         recovered_amount_paise  INTEGER DEFAULT 0,
         recovery_notes          TEXT,   -- JSON — compact Razorpay notes payload
 
+        customer_message             TEXT,
+
         -- Counterfactual (filled in during batch evaluation)
         cf_baseline_action      TEXT,
         cf_baseline_outcome_prob REAL,
@@ -85,6 +87,11 @@ class AuditTrail:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(self.CREATE_TABLE_SQL)
             conn.execute(self.GUARD_TRIGGER_SQL)
+            # Safe migration: add customer_message column to existing DBs
+            try:
+                conn.execute("ALTER TABLE lazarus_audit ADD COLUMN customer_message TEXT")
+            except Exception:
+                pass  # Column already exists
             conn.commit()
 
     def log_decision(
@@ -131,6 +138,7 @@ class AuditTrail:
             "outcome":                  outcome,
             "recovered_amount_paise":   recovered_amount_paise,
             "recovery_notes":           json.dumps(execution_result.get("notes", {})),
+            "customer_message":          (strategist_result or {}).get("customer_message_hint"),
             "cf_baseline_action":       counterfactual.get("baseline_action"),
             "cf_baseline_outcome_prob": counterfactual.get("baseline_prob"),
             "cf_lazarus_outcome_prob":  counterfactual.get("lazarus_prob"),

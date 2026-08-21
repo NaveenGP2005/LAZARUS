@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment & secrets
+.env
+*.env
+
+# Database (generated — not source)
+*.db
+lazarus_audit.db
+
+# Generated data
+batch_results.json
+
+# Streamlit cache
+.streamlit/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store

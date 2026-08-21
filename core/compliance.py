@@ -47,18 +47,24 @@ class ComplianceGate:
         # Running counter of payment links created this session
         self.payment_links_created = payment_links_created
 
+    def allow_contact(self, archetype: str) -> bool:
+        """Returns True if this archetype permits customer contact."""
+        return ARCHETYPES.get(archetype, {}).get("contact_customer", False)
+
     def evaluate(
         self,
         transaction: dict,
         archetype: str,
         proposed_action: str,
         contact_history: dict | None = None,
+        _now: datetime | None = None,
     ) -> ComplianceDecision:
+        """_now: override current time (used by sandbox for simulation)"""
         """
         Evaluate whether the proposed action is compliant.
         contact_history: {customer_id: number_of_contacts_last_7_days}
         """
-        now = datetime.now()
+        now = _now or datetime.now()
         contact_history = contact_history or {}
         customer_id = transaction.get("buyer", {}).get("customer_id", "UNKNOWN")
         contacts_7d = contact_history.get(customer_id, 0)

@@ -18,6 +18,7 @@ from config import (
     ARCHETYPE_LIST, ARCHETYPES, ARCHETYPE_RECOVERY_RATES,
     DB_PATH, TRANSACTIONS_PATH, BATCH_DISTRIBUTION
 )
+from sandbox import render_sandbox
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page config
@@ -230,11 +231,12 @@ if has_audit:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔬 Coroner's Report",
     "📊 Recovery Dashboard",
     "🧮 Counterfactual Comparison",
     "📋 Audit Trail",
+    "🎮 Live Sandbox",
 ])
 
 # ──────────────────────────────────────────────────────────
@@ -424,11 +426,30 @@ with tab4:
             "id", "txn_id", "archetype", "archetype_confidence",
             "failure_code", "prescribed_action",
             "gate_verdict", "gate_reason", "outcome",
+            "customer_message", "strategist_reasoning",
             "recovered_amount_paise", "policy_version", "logged_at"
         ]
         existing_cols = [c for c in cols_to_show if c in display_df.columns]
         st.dataframe(display_df[existing_cols], use_container_width=True, height=480)
         st.markdown(f"Showing **{len(display_df)}** of **{len(audit_df)}** records")
+
+        # ── Expandable forensic detail for any selected transaction
+        st.markdown("---")
+        sel_ids = display_df["id"].tolist()
+        if sel_ids:
+            sel_id = st.selectbox("Expand forensic report for audit ID:", sel_ids, key="audit_expand")
+            row = display_df[display_df["id"] == sel_id].iloc[0]
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"**Archetype:** `{row.get('archetype','—')}`")
+            c2.markdown(f"**Gate Verdict:** `{row.get('gate_verdict','—')}`")
+            c3.markdown(f"**Outcome:** `{row.get('outcome','—')}`")
+            msg = row.get("customer_message") or row.get("customer_message_hint")
+            if msg and str(msg) not in ("None", "nan", ""):
+                st.info(f"💬 **Customer message:** {msg}")
+            reasoning = row.get("strategist_reasoning")
+            if reasoning and str(reasoning) not in ("None", "nan", ""):
+                st.markdown(f"**Strategist reasoning:** {reasoning}")
+            st.caption(f"Gate reason: {row.get('gate_reason','—')}")
 
         st.markdown("---")
         st.markdown("**Audit integrity proof** — no UPDATE/DELETE possible")
@@ -442,6 +463,10 @@ END;
         """, language="sql")
     else:
         st.info("Run `python -X utf8 batch_runner.py` to populate the audit trail.")
+
+# ── Sandbox tab
+with tab5:
+    render_sandbox()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Footer

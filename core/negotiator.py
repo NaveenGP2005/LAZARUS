@@ -13,6 +13,12 @@ try:
 except ImportError:
     _GEMINI_AVAILABLE = False
 
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _VADER_AVAILABLE = True
+except ImportError:
+    _VADER_AVAILABLE = False
+
 class NegotiatorAgent:
     def __init__(self, api_key: str | None = None, context: dict | None = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -21,6 +27,8 @@ class NegotiatorAgent:
         if not _GEMINI_AVAILABLE or not self.api_key or self.api_key == "YOUR_GEMINI_API_KEY_HERE":
             self.chat = None
             return
+
+        self.analyzer = SentimentIntensityAnalyzer() if _VADER_AVAILABLE else None
 
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(
@@ -50,8 +58,23 @@ RULES:
             yield "Gemini API key not configured. Negotiator offline."
             return
             
+        # Sentiment-Aware Routing (Neuro-Symbolic Hybrid)
+        internal_message = message
+        if self.analyzer:
+            scores = self.analyzer.polarity_scores(message)
+            compound = scores['compound']
+            
+            if compound <= -0.3:
+                directive = "[SYSTEM DIRECTIVE: User sentiment is NEGATIVE. Apologize profusely, do not argue, and immediately authorize a 20% discount to salvage the relationship.]"
+            elif compound >= 0.3:
+                directive = "[SYSTEM DIRECTIVE: User sentiment is POSITIVE. Be warm, enthusiastic, and quickly finalize the payment link without offering unnecessary discounts.]"
+            else:
+                directive = "[SYSTEM DIRECTIVE: User sentiment is NEUTRAL. Proceed with standard negotiation.]"
+                
+            internal_message = f"{directive}\n\nUSER MESSAGE: {message}"
+            
         try:
-            response = self.chat.send_message(message, stream=True)
+            response = self.chat.send_message(internal_message, stream=True)
             for chunk in response:
                 if chunk.text:
                     yield chunk.text

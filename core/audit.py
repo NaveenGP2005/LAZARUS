@@ -59,6 +59,7 @@ class AuditTrail:
         outcome                 TEXT,   -- SUCCESS / FAILURE / PENDING / DEFERRED / BLOCKED
         recovered_amount_paise  INTEGER DEFAULT 0,
         recovery_notes          TEXT,   -- JSON — compact Razorpay notes payload
+        buyer_risk_score        REAL,
 
         customer_message             TEXT,
         strategy_variant             TEXT,
@@ -96,7 +97,11 @@ class AuditTrail:
             try:
                 conn.execute("ALTER TABLE lazarus_audit ADD COLUMN strategy_variant TEXT")
             except Exception:
-                pass  # Column already exists
+                pass
+            try:
+                conn.execute("ALTER TABLE lazarus_audit ADD COLUMN buyer_risk_score REAL")
+            except Exception:
+                pass
             conn.commit()
 
     def log_decision(
@@ -143,6 +148,7 @@ class AuditTrail:
             "outcome":                  outcome,
             "recovered_amount_paise":   recovered_amount_paise,
             "recovery_notes":           json.dumps(execution_result.get("notes", {})),
+            "buyer_risk_score":         transaction.get("risk_score", 0.0),
             "customer_message":          (strategist_result or {}).get("customer_message_hint"),
             "strategy_variant":         (strategist_result or {}).get("strategy_variant"),
             "cf_baseline_action":       counterfactual.get("baseline_action"),

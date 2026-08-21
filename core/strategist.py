@@ -126,40 +126,57 @@ class Strategist:
             genai.configure(api_key=self.api_key)
             self.model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
-    def _select_strategy_variant(self, archetype: str) -> str:
+    def _select_strategy_variant(self, archetype: str, risk_score: float) -> str:
         """
-        Epsilon-Greedy Bandit:
-        15% of the time, explore a random variant.
-        85% of the time, exploit the highest-performing historical variant for this archetype.
+        Contextual UCB (Upper Confidence Bound) Bandit:
+        Finds the mathematically optimal prompt variant by balancing 
+        exploitation (what has worked) with exploration (what hasn't been tried),
+        contextualized by the specific buyer's risk tier.
         """
         import random
         import sqlite3
+        import math
         from config import DB_PATH
         
         VARIANTS = ["assertive_reminder", "empathetic_discount", "urgency_deadline", "neutral_informational"]
+        risk_tier = "LOW" if risk_score < 0.5 else "HIGH"
         
-        # 15% Exploration
-        if random.random() < 0.15:
-            return random.choice(VARIANTS)
-            
-        # 85% Exploitation
         try:
             with sqlite3.connect(DB_PATH) as conn:
                 rows = conn.execute("""
-                    SELECT strategy_variant, 
-                           SUM(CASE WHEN outcome = 'SUCCESS' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as win_rate
+                    SELECT strategy_variant, COUNT(*) as tries, 
+                           SUM(CASE WHEN outcome = 'SUCCESS' THEN 1 ELSE 0 END) as successes
                     FROM lazarus_audit
-                    WHERE archetype = ? AND strategy_variant IS NOT NULL
+                    WHERE archetype = ? AND (CASE WHEN buyer_risk_score < 0.5 THEN 'LOW' ELSE 'HIGH' END) = ? 
+                          AND strategy_variant IS NOT NULL
                     GROUP BY strategy_variant
-                    ORDER BY win_rate DESC
-                    LIMIT 1
-                """, (archetype,)).fetchone()
-                if rows and rows[0]:
-                    return rows[0]
+                """, (archetype, risk_tier)).fetchall()
+                
+                if not rows:
+                    return random.choice(VARIANTS)
+                    
+                total_tries = sum(r[1] for r in rows)
+                tested_variants = {r[0]: (r[1], r[2]) for r in rows}
+                
+                # Pure Exploration: Force test any variant that hasn't been tested yet for this context
+                for v in VARIANTS:
+                    if v not in tested_variants:
+                        return v
+                        
+                # UCB Calculation
+                best_variant, best_ucb = None, -1
+                for v, (tries, successes) in tested_variants.items():
+                    if v not in VARIANTS: continue # Ignore legacy variants
+                    avg_success = successes / tries
+                    exploration_factor = math.sqrt(2 * math.log(total_tries) / tries)
+                    ucb = avg_success + exploration_factor
+                    if ucb > best_ucb:
+                        best_ucb = ucb
+                        best_variant = v
+                        
+                return best_variant or random.choice(VARIANTS)
         except Exception:
-            pass
-            
-        return random.choice(VARIANTS)
+            return random.choice(VARIANTS)
 
     def generate_playbook(self, transaction: dict, coroner_result: dict) -> dict:
         """
@@ -194,7 +211,7 @@ class Strategist:
             return
 
         arch_cfg = ARCHETYPES[archetype]
-        variant = self._select_strategy_variant(archetype)
+        variant = self._select_strategy_variant(archetype, transaction.get('risk_score', 0.0))
         
         prompt = f"""You are LAZARUS, a payment recovery AI. Analyze this failed payment and respond ONLY with valid JSON.
 
@@ -231,7 +248,7 @@ Respond ONLY with this JSON (no markdown fences):
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
         arch_cfg = ARCHETYPES[archetype]
-        variant = self._select_strategy_variant(archetype)
+        variant = self._select_strategy_variant(archetype, txn.get('risk_score', 0.0))
         
         prompt = f"""You are LAZARUS, an expert payment recovery strategist.
 

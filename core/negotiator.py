@@ -46,10 +46,11 @@ The failure cause was: {arch}.
 
 RULES:
 1. Be polite, concise, and empathetic. Do not sound like a robot.
-2. If the user cites a liquidity issue (e.g., "I don't have money until Friday"), offer to generate a new payment link that is valid until Saturday.
+2. If the user cites a liquidity issue (e.g., "I don't have money until Friday"), you have authorization to offer an Autonomous Liquidity Bridge: "Pay 25% today to keep your service active, and the rest next week".
 3. If the user cites a price issue, you may offer a one-time 10% discount to complete the purchase now.
 4. Keep responses under 3 sentences.
-5. If you reach an agreement, end your message with the exact string: [LINK_GENERATED]
+5. If you reach an agreement on the Liquidity Bridge (25% today), end your message with the exact string: [BRIDGE_CREATED_25_75]
+6. If you reach a standard agreement (full amount), end your message with: [LINK_GENERATED]
 """
 
     def send_message(self, message: str):

@@ -137,6 +137,21 @@ class ComplianceGate:
                 ComplianceDecision.BLOCK,
                 reason=f"min_amount: amount {amount_paise} paise is below Razorpay minimum (100 paise = ₹1)",
             )
+            
+        # ── Rule 8: ACLB Predatory Lending & Risk Math Check
+        if proposed_action == "offer_installment_bridge":
+            risk_score = transaction.get("risk_score", 0.0)
+            if risk_score >= 0.6:
+                return ComplianceDecision(
+                    ComplianceDecision.BLOCK,
+                    reason=f"aclb_risk_violation: risk score {risk_score} >= 0.6. Debt restructuring denied for high-risk profiles.",
+                )
+            upfront_paise = amount_paise * 0.25
+            if upfront_paise < 100:
+                return ComplianceDecision(
+                    ComplianceDecision.BLOCK,
+                    reason=f"aclb_minimum_violation: 25% upfront amount ({upfront_paise} paise) is below Razorpay minimum.",
+                )
 
         # ── All checks passed
         return ComplianceDecision(

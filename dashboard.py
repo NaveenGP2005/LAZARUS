@@ -739,10 +739,12 @@ with tab7:
                 full_response += chunk
                 # Live preview replacement while streaming
                 display_text = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
+                display_text = display_text.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
                 response_placeholder.markdown(display_text + "▌")
             
             # Final clean replacement
             full_response = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
+            full_response = full_response.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
             response_placeholder.markdown(full_response)
             
         st.session_state.chat_messages.append({"role": "assistant", "content": full_response})

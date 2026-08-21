@@ -85,6 +85,7 @@ class Executor:
             "reconstruct_and_warm_reengage":    self._create_payment_link,
             "hold_and_escalate":                self._escalate,
             "manual_review":                    self._escalate,
+            "offer_installment_bridge":         self._offer_installment_bridge,
         }
 
         handler = handlers.get(action, self._escalate)
@@ -137,6 +138,60 @@ class Executor:
             return {
                 "resource_id": None,
                 "resource_type": "payment_link",
+                "error": str(e),
+                "executed_at": datetime.now().isoformat(),
+                "notes": notes,
+                "dry_run": False,
+            }
+
+    def _offer_installment_bridge(self, txn: dict, archetype: str, action: str, audit_id: int) -> dict:
+        """ACLB feature: Creates a 25% upfront payment link and schedules the 75%."""
+        amount_paise = txn["amount_paise"]
+        upfront_paise = int(amount_paise * 0.25)
+        scheduled_paise = amount_paise - upfront_paise
+        
+        customer = txn.get("buyer", {})
+        notes = self._build_notes(txn, archetype, action, audit_id)
+        notes["aclb_upfront"] = str(upfront_paise)
+        notes["aclb_scheduled"] = str(scheduled_paise)
+        
+        payload = {
+            "amount": upfront_paise,
+            "currency": RAZORPAY_CURRENCY,
+            "description": f"LAZARUS Bridge (1 of 2) — {archetype.replace('_', ' ').title()}",
+            "customer": {
+                "name": customer.get("customer_id", "Customer"),
+                "email": f"{customer.get('customer_id', 'cust').lower()}@example.com",
+            },
+            "notes": notes,
+            "expire_by": int((datetime.now() + timedelta(seconds=RAZORPAY_PAYMENT_LINK_EXPIRE_SECONDS)).timestamp()),
+            "reminder_enable": False,
+        }
+
+        if self._dry_run:
+            return {
+                "resource_id": f"plink_DRY_BRIDGE_{audit_id:04d}",
+                "resource_type": "installment_bridge",
+                "short_url": f"https://rzp.io/dry/bridge/{audit_id:04d}",
+                "executed_at": datetime.now().isoformat(),
+                "notes": notes,
+                "dry_run": True,
+            }
+
+        try:
+            response = self._client.payment_link.create(payload)
+            return {
+                "resource_id": response["id"],
+                "resource_type": "installment_bridge",
+                "short_url": response.get("short_url"),
+                "executed_at": datetime.now().isoformat(),
+                "notes": notes,
+                "dry_run": False,
+            }
+        except Exception as e:
+            return {
+                "resource_id": None,
+                "resource_type": "installment_bridge",
                 "error": str(e),
                 "executed_at": datetime.now().isoformat(),
                 "notes": notes,

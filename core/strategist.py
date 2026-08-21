@@ -267,10 +267,11 @@ CORONER DIAGNOSIS:
 
 ALLOWED RECOVERY ACTIONS FOR THIS ARCHETYPE:
 - Primary: {arch_cfg['recovery_action']}
+{'- Autonomous Liquidity Bridge (offer_installment_bridge)' if archetype == 'empty_vault' and txn.get('risk_score', 0.0) < 0.6 else ''}
 - Contact customer: {arch_cfg['contact_customer']}
 
 STRATEGY INSTRUCTION:
-Adopt a "{variant}" tone/approach for the customer_message_hint.
+Adopt a "{variant}" tone/approach for the customer_message_hint. If offering a Liquidity Bridge, suggest paying 25% today and 75% later.
 
 Your task: Generate a precise recovery playbook. Be concise. The compliance gate will decide if this executes.
 

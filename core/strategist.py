@@ -15,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import ARCHETYPES
 
 try:
+    from pydantic import BaseModel, field_validator
+    _PYDANTIC_AVAILABLE = True
+except ImportError:
+    _PYDANTIC_AVAILABLE = False
+
+try:
     import google.generativeai as genai
     _GEMINI_AVAILABLE = True
 except ImportError:
@@ -73,6 +79,31 @@ FALLBACK_PLAYBOOKS = {
         "risk": "high — do not contact customer",
     },
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pydantic schema — validates Gemini output before it enters the pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+if _PYDANTIC_AVAILABLE:
+    class StrategyPlaybook(BaseModel):
+        chosen_action: str
+        reasoning: str
+        customer_message_hint: str | None = None
+        risk: str = "medium"
+        source: str = "gemini"
+
+        @field_validator("risk")
+        @classmethod
+        def validate_risk(cls, v: str) -> str:
+            allowed = {"none", "low", "medium", "high", "high — do not contact customer"}
+            return v if v in allowed else "medium"
+
+        @field_validator("chosen_action")
+        @classmethod
+        def validate_action(cls, v: str) -> str:
+            # Strip any LLM hallucination whitespace
+            return v.strip().lower().replace(" ", "_")
 
 
 # Archetypes where action is 100% deterministic — calling Gemini wastes 4s per txn
@@ -154,9 +185,15 @@ Respond ONLY with valid JSON in this exact format:
                 text = text.split("```")[1]
                 if text.startswith("json"):
                     text = text[4:]
-            result = json.loads(text.strip())
-            result["source"] = "gemini"
-            return result
+            raw = json.loads(text.strip())
+            raw["source"] = "gemini"
+
+            # Validate with Pydantic if available
+            if _PYDANTIC_AVAILABLE:
+                playbook = StrategyPlaybook(**raw)
+                return playbook.model_dump()
+            return raw
+
         except Exception as e:
             print(f"  ⚠ Gemini call failed ({e}), using fallback playbook")
             return self._fallback(archetype, txn)

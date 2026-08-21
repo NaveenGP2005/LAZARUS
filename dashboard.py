@@ -19,6 +19,19 @@ from config import (
     DB_PATH, TRANSACTIONS_PATH, BATCH_DISTRIBUTION
 )
 from sandbox import render_sandbox
+import plotly.graph_objects as go
+
+# Archetype color palette — matches CSS pills
+ARCH_COLORS = {
+    "empty_vault":     "#fbbf24",
+    "frozen_gate":     "#63c8ff",
+    "dropped_signal":  "#34d399",
+    "hesitant_hand":   "#fb923c",
+    "limit_breaker":   "#a78bfa",
+    "expired_mandate": "#f472b6",
+    "ghost_checkout":  "#94a3b8",
+    "velocity_trap":   "#f87171",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page config
@@ -254,9 +267,26 @@ with tab1:
         col_chart, col_table = st.columns([1, 1])
 
         with col_chart:
-            # Bar chart
-            chart_data = arch_counts.set_index("Archetype")
-            st.bar_chart(chart_data, color="#63c8ff", height=320)
+            # Plotly bar chart with per-archetype colours
+            counts_map = dict(zip(arch_counts["Archetype"], arch_counts["Count"]))
+            fig = go.Figure(go.Bar(
+                x=ARCHETYPE_LIST,
+                y=[counts_map.get(a, 0) for a in ARCHETYPE_LIST],
+                marker_color=[ARCH_COLORS.get(a, "#63c8ff") for a in ARCHETYPE_LIST],
+                marker_line_color="rgba(255,255,255,0.06)",
+                marker_line_width=1,
+                hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>",
+            ))
+            fig.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="rgba(255,255,255,0.6)", size=11),
+                margin=dict(l=0, r=0, t=8, b=0),
+                height=320,
+                xaxis=dict(showgrid=False, tickangle=-30),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
         with col_table:
             st.markdown("**Archetype breakdown with recovery rates**")
@@ -327,9 +357,68 @@ with tab2:
         df_comp = pd.DataFrame(rows).set_index("Archetype")
         st.dataframe(df_comp, use_container_width=True)
 
-        # Bar chart comparison
-        chart_df = df_comp[["Baseline (%)", "LAZARUS (%)"]].reset_index()
-        st.bar_chart(chart_df.set_index("Archetype")[["Baseline (%)", "LAZARUS (%)"]], height=320)
+        # Grouped bar chart — Baseline vs LAZARUS
+        st.markdown("**Per-Archetype Recovery Rate: Baseline vs LAZARUS**")
+        fig_bar = go.Figure()
+        bl_rates = [round(ARCHETYPE_RECOVERY_RATES.get(a, (0,0))[0]*100, 1) for a in ARCHETYPE_LIST]
+        lz_rates = [round(ARCHETYPE_RECOVERY_RATES.get(a, (0,0))[1]*100, 1) for a in ARCHETYPE_LIST]
+        fig_bar.add_trace(go.Bar(
+            name="Baseline", x=ARCHETYPE_LIST, y=bl_rates,
+            marker_color="rgba(148,163,184,0.5)",
+            hovertemplate="<b>%{x}</b><br>Baseline: %{y}%<extra></extra>",
+        ))
+        fig_bar.add_trace(go.Bar(
+            name="LAZARUS", x=ARCHETYPE_LIST, y=lz_rates,
+            marker_color=[ARCH_COLORS.get(a, "#63c8ff") for a in ARCHETYPE_LIST],
+            hovertemplate="<b>%{x}</b><br>LAZARUS: %{y}%<extra></extra>",
+        ))
+        fig_bar.update_layout(
+            barmode="group",
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="rgba(255,255,255,0.6)", size=11),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, bgcolor="rgba(0,0,0,0)"),
+            margin=dict(l=0, r=0, t=24, b=0), height=320,
+            xaxis=dict(showgrid=False, tickangle=-30),
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", title="Recovery Rate (%)"),
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        st.markdown("---")
+
+        # Radar chart — shows shape of advantage across all archetypes
+        st.markdown("**Radar: LAZARUS Advantage Profile**")
+        categories = [a.replace("_", " ").title() for a in ARCHETYPE_LIST]
+        categories_closed = categories + [categories[0]]  # close the polygon
+        bl_closed = bl_rates + [bl_rates[0]]
+        lz_closed = lz_rates + [lz_rates[0]]
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=bl_closed, theta=categories_closed,
+            fill="toself", name="Baseline",
+            line_color="rgba(148,163,184,0.6)",
+            fillcolor="rgba(148,163,184,0.08)",
+        ))
+        fig_radar.add_trace(go.Scatterpolar(
+            r=lz_closed, theta=categories_closed,
+            fill="toself", name="LAZARUS",
+            line_color="#63c8ff",
+            fillcolor="rgba(99,200,255,0.12)",
+        ))
+        fig_radar.update_layout(
+            polar=dict(
+                bgcolor="rgba(0,0,0,0)",
+                radialaxis=dict(visible=True, range=[0, 100], gridcolor="rgba(255,255,255,0.08)",
+                                tickfont=dict(color="rgba(255,255,255,0.4)", size=9)),
+                angularaxis=dict(gridcolor="rgba(255,255,255,0.08)",
+                                 tickfont=dict(color="rgba(255,255,255,0.7)", size=10)),
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h", yanchor="bottom", y=-0.15, bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="rgba(255,255,255,0.6)")),
+            margin=dict(l=40, r=40, t=20, b=40),
+            height=380,
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
 
         st.markdown("---")
         st.markdown("**velocity_trap: The case for doing nothing**")

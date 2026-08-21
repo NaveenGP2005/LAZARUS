@@ -144,6 +144,50 @@ class Strategist:
 
         return self._call_gemini(transaction, coroner_result, archetype)
 
+    def generate_playbook_stream(self, transaction: dict, coroner_result: dict):
+        """
+        Streaming generator version for sandbox live demo.
+        Yields (chunk_text: str, final_playbook: dict | None) tuples.
+        chunk_text is a raw Gemini token; final_playbook is set on the last yield.
+        """
+        archetype = coroner_result["archetype"]
+
+        if not self.model or archetype in GEMINI_SKIP_ARCHETYPES:
+            playbook = self._fallback(archetype, transaction)
+            yield "", playbook
+            return
+
+        arch_cfg = ARCHETYPES[archetype]
+        prompt = f"""You are LAZARUS, a payment recovery AI. Analyze this failed payment and respond ONLY with valid JSON.
+
+TRANSACTION: ₹{transaction.get('amount_paise',0)/100:.2f} | {transaction.get('payment_method')} | {transaction.get('failure_code')}
+ARCHETYPE: {archetype} — {arch_cfg['description']}
+CAUSAL FACTORS: {', '.join(coroner_result.get('causal_factors', []))}
+
+Respond ONLY with this JSON (no markdown fences):
+{{"chosen_action":"{arch_cfg['recovery_action']}","reasoning":"<2-3 specific sentences>","customer_message_hint":"<template or null>","risk":"<none|low|medium|high>"}}"""
+
+        full_text = ""
+        try:
+            stream = self.model.generate_content_stream(prompt)
+            for chunk in stream:
+                if hasattr(chunk, "text") and chunk.text:
+                    full_text += chunk.text
+                    yield chunk.text, None
+
+            text = full_text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            raw = json.loads(text)
+            raw["source"] = "gemini_stream"
+            if _PYDANTIC_AVAILABLE:
+                playbook = StrategyPlaybook(**raw).model_dump()
+            else:
+                playbook = raw
+            yield "", playbook
+
+        except Exception as e:
+            print(f"  ⚠ Stream failed ({e}), using fallback")
+            yield "", self._fallback(archetype, transaction)
+
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
         arch_cfg = ARCHETYPES[archetype]

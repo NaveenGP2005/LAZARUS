@@ -317,6 +317,42 @@ with tab1:
     else:
         st.info("Run `python -X utf8 batch_runner.py` to populate the audit trail.")
 
+    # ── Self-calibrating prior (always shown if audit data exists)
+    if has_audit:
+        st.markdown("---")
+        st.markdown("### 🧠 Self-Calibrating Prior: Domain Model vs Observed")
+        st.markdown(
+            "Every archetype has a **domain prior** (expected LAZARUS recovery rate from industry data). "
+            "Here we compare those priors against **what this batch actually observed**. "
+            "Delta shows how well the model is calibrated."
+        )
+        prior_rows = []
+        for arch in ARCHETYPE_LIST:
+            prior_bl, prior_lz = ARCHETYPE_RECOVERY_RATES.get(arch, (0, 0))
+            arch_rows  = audit_df[audit_df["archetype"] == arch]
+            total      = len(arch_rows)
+            observed_n = int((arch_rows["outcome"] == "SUCCESS").sum())
+            obs_rate   = observed_n / total if total > 0 else None
+            if obs_rate is not None:
+                delta_pp = (obs_rate - prior_lz) * 100
+                flag = "🟢" if abs(delta_pp) <= 10 else ("🟡" if abs(delta_pp) <= 20 else "🔴")
+                delta_str = f"{flag} {delta_pp:+.1f}pp"
+            else:
+                delta_str = "—"
+            prior_rows.append({
+                "Archetype":            arch,
+                "Domain Prior (LAZARUS)": f"{prior_lz:.0%}",
+                "Observed Rate":        f"{obs_rate:.0%}" if obs_rate is not None else "—",
+                "Delta":               delta_str,
+                "N":                   total,
+            })
+        st.dataframe(pd.DataFrame(prior_rows), hide_index=True, use_container_width=True)
+        st.caption(
+            "⚠ Observed rates are from a single simulated batch (N=100). "
+            "In production, calibrate from thousands of real webhook outcomes. "
+            "🟢 = well-calibrated (±10pp) · 🟡 = moderate drift · 🔴 = needs recalibration."
+        )
+
 # ──────────────────────────────────────────────────────────
 # TAB 2: Recovery Dashboard
 # ──────────────────────────────────────────────────────────
@@ -428,6 +464,58 @@ with tab2:
         LAZARUS blocks all actions and escalates to the merchant. **Revenue preservation here means
         not creating liability, not recovering the transaction.**
         """)
+
+        # ── Sankey: full transaction flow
+        if has_audit:
+            st.markdown("---")
+            st.markdown("**Transaction Flow: Archetype → Compliance Gate → Outcome**")
+            st.caption("Each ribbon shows how transactions flow through the pipeline. Width = volume. Read left to right.")
+
+            VERDICT_LABELS  = ["ALLOW", "DEFER", "BLOCK"]
+            OUTCOME_LABELS  = ["SUCCESS", "FAILURE", "DEFERRED", "BLOCKED"]
+            VERDICT_COLORS  = {"ALLOW": "#34d399", "DEFER": "#fbbf24", "BLOCK": "#f87171"}
+            OUTCOME_COLORS  = {"SUCCESS": "#34d399", "FAILURE": "#f87171",
+                               "DEFERRED": "#fbbf24", "BLOCKED": "#94a3b8"}
+
+            all_labels = ARCHETYPE_LIST + VERDICT_LABELS + OUTCOME_LABELS
+            all_colors = (
+                [ARCH_COLORS.get(a, "#94a3b8") for a in ARCHETYPE_LIST]
+                + [VERDICT_COLORS[v] for v in VERDICT_LABELS]
+                + [OUTCOME_COLORS[o] for o in OUTCOME_LABELS]
+            )
+
+            sources, targets, values, link_colors = [], [], [], []
+
+            for (arch, verdict), cnt in audit_df.groupby(["archetype","gate_verdict"]).size().items():
+                if arch in ARCHETYPE_LIST and verdict in VERDICT_LABELS:
+                    sources.append(ARCHETYPE_LIST.index(arch))
+                    targets.append(len(ARCHETYPE_LIST) + VERDICT_LABELS.index(verdict))
+                    values.append(int(cnt))
+                    link_colors.append(ARCH_COLORS.get(arch, "#94a3b8") + "55")
+
+            for (verdict, outcome), cnt in audit_df.groupby(["gate_verdict","outcome"]).size().items():
+                if verdict in VERDICT_LABELS and outcome in OUTCOME_LABELS:
+                    sources.append(len(ARCHETYPE_LIST) + VERDICT_LABELS.index(verdict))
+                    targets.append(len(ARCHETYPE_LIST) + len(VERDICT_LABELS) + OUTCOME_LABELS.index(outcome))
+                    values.append(int(cnt))
+                    link_colors.append(VERDICT_COLORS.get(verdict, "#94a3b8") + "55")
+
+            fig_sankey = go.Figure(go.Sankey(
+                node=dict(
+                    pad=20, thickness=18,
+                    label=all_labels,
+                    color=all_colors,
+                    line=dict(color="rgba(0,0,0,0)", width=0),
+                ),
+                link=dict(source=sources, target=targets, value=values, color=link_colors),
+            ))
+            fig_sankey.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="rgba(255,255,255,0.75)", size=11),
+                margin=dict(l=0, r=0, t=8, b=0),
+                height=430,
+            )
+            st.plotly_chart(fig_sankey, use_container_width=True)
     else:
         st.info("Run `python -X utf8 batch_runner.py` to generate comparison data.")
 

@@ -207,43 +207,37 @@ has_batch = batch is not None
 # Top-level KPI row
 # ─────────────────────────────────────────────────────────────────────────────
 
-if has_audit:
+if has_audit and has_batch:
     total = len(audit_df)
-    recovered = (audit_df["outcome"] == "SUCCESS").sum()
+    bl_exp = batch["lazarus"].get("counterfactual_summary", {}).get("baseline_expected_recovered_paise", 0) / 100
+    lz_exp = batch["lazarus"].get("counterfactual_summary", {}).get("lazarus_expected_recovered_paise", 0) / 100
+    lift = lz_exp - bl_exp
     blocked = (audit_df["outcome"] == "BLOCKED").sum()
-    recovered_inr = audit_df["recovered_amount_paise"].sum() / 100
-    unsafe = len(audit_df[(audit_df["archetype"] == "velocity_trap") & (audit_df["gate_verdict"] != "BLOCK")])
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.markdown(f"""<div class="metric-card">
-            <div class="metric-val">{total}</div>
-            <div class="metric-lbl">Transactions Processed</div>
-        </div>""", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""<div class="metric-card">
-            <div class="metric-val">{recovered}</div>
-            <div class="metric-lbl">Recovered</div>
-            <div class="metric-delta-pos">{recovered/total:.0%} recovery rate</div>
-        </div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""<div class="metric-card">
-            <div class="metric-val">₹{recovered_inr:,.0f}</div>
-            <div class="metric-lbl">Amount Recovered</div>
-        </div>""", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""<div class="metric-card">
-            <div class="metric-val">{blocked}</div>
-            <div class="metric-lbl">Gate Blocked</div>
-            <div class="metric-delta-pos">Compliance enforced</div>
-        </div>""", unsafe_allow_html=True)
-    with c5:
-        st.markdown(f"""<div class="metric-card">
-            <div class="metric-val">{unsafe}</div>
-            <div class="metric-lbl">Unsafe Actions</div>
-            <div class="metric-delta-pos">velocity_trap shielded</div>
-        </div>""", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+        <div class="metric-card" style="flex: 1; min-width: 250px; border-color: rgba(52,211,153,0.5); background: linear-gradient(135deg, rgba(52,211,153,0.08), #0d1b2a);">
+            <div class="metric-lbl" style="color: #34d399;">Net LAZARUS Lift (Expected)</div>
+            <div class="metric-val" style="color: #34d399; font-size: 2.8rem; text-shadow: 0 0 20px rgba(52,211,153,0.3);">+₹{lift:,.0f}</div>
+            <div class="metric-delta-pos">Autonomous Alpha generated vs baseline</div>
+        </div>
+        <div class="metric-card" style="flex: 1; min-width: 200px;">
+            <div class="metric-lbl">Total Value at Risk</div>
+            <div class="metric-val">₹{batch["baseline"]["total_amount_inr"]:,.0f}</div>
+            <div class="metric-delta-pos">{total} failed transactions</div>
+        </div>
+        <div class="metric-card" style="flex: 1; min-width: 200px;">
+            <div class="metric-lbl">Baseline Yield</div>
+            <div class="metric-val" style="color: #94a3b8;">₹{bl_exp:,.0f}</div>
+            <div class="metric-delta-neg">Legacy smart-retries only</div>
+        </div>
+        <div class="metric-card" style="flex: 1; min-width: 200px; border-color: rgba(248,113,113,0.3);">
+            <div class="metric-lbl">Compliance Blocks</div>
+            <div class="metric-val" style="color: #f87171;">{blocked}</div>
+            <div class="metric-delta-neg">Predatory/Fraud actions stopped</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
@@ -255,7 +249,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📋 Audit Trail",
     "🎮 Live Sandbox",
     "🏢 Merchant Intelligence",
-    "💬 Chat Simulator"
+    "💬 Chat Simulator",
+    "📁 Bulk Recovery"
 ])
 
 # ──────────────────────────────────────────────────────────
@@ -712,42 +707,98 @@ with tab6:
 # ── Chat Simulator tab
 with tab7:
     st.markdown("### 💬 The Negotiator (Interactive Chat)")
-    st.markdown("Simulate a conversational recovery flow (e.g., overcoming price friction or liquidity issues).")
+    st.markdown("Simulate a conversational recovery flow with the Sentiment-Aware AI.")
     
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = [
-            {"role": "assistant", "content": "Hi there! I noticed you had trouble completing your payment of ₹5000. Is there anything I can help you with?"}
-        ]
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.markdown("#### Simulation Setup")
+        st.info("Change parameters to see how the AI dynamically alters its negotiation strategy.")
+        sim_arch = st.selectbox("Failure Archetype", ["empty_vault", "hesitant_hand", "frozen_gate", "limit_breaker"], index=0)
+        sim_amt = st.number_input("Transaction Amount (₹)", min_value=100, max_value=100000, value=5000, step=500)
         
-    if "negotiator" not in st.session_state:
-        from core.negotiator import NegotiatorAgent
-        st.session_state.negotiator = NegotiatorAgent(context={"amount_inr": 5000, "archetype": "hesitant_hand"})
+        # Force re-init if they click restart or change archetype
+        if st.button("🔄 Restart Chat Session") or "chat_messages" not in st.session_state or st.session_state.get("sim_arch") != sim_arch:
+            st.session_state.sim_arch = sim_arch
+            from core.negotiator import NegotiatorAgent
+            st.session_state.negotiator = NegotiatorAgent(context={"amount_inr": sim_amt, "archetype": sim_arch})
+            
+            # Dynamic first message based on archetype
+            if sim_arch == "empty_vault":
+                intro = f"Hi there! I noticed your payment for ₹{sim_amt} was declined due to insufficient funds. Managing cashflow can be tricky—is there any way I can help structure this for you?"
+            elif sim_arch == "hesitant_hand":
+                intro = f"Hi there! Your ₹{sim_amt} order is saved. I'm here if you have any questions or concerns about completing your purchase!"
+            else:
+                intro = f"Hi! I see your ₹{sim_amt} payment didn't go through. Let me know if you need help resolving this."
+                
+            st.session_state.chat_messages = [{"role": "assistant", "content": intro}]
+            st.rerun()
 
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with col2:
+        st.markdown("#### Live Chat Window")
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                
+        if chat_prompt := st.chat_input("E.g., I don't get paid until Friday..."):
+            st.session_state.chat_messages.append({"role": "user", "content": chat_prompt})
+            with st.chat_message("user"):
+                st.markdown(chat_prompt)
+                
+            with st.chat_message("assistant"):
+                response_placeholder = st.empty()
+                full_response = ""
+                for chunk in st.session_state.negotiator.send_message(chat_prompt):
+                    full_response += chunk
+                    # Live preview replacement while streaming
+                    display_text = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
+                    display_text = display_text.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
+                    response_placeholder.markdown(display_text + "▌")
+                
+                # Final clean replacement
+                full_response = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
+                full_response = full_response.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
+                response_placeholder.markdown(full_response)
+                
+            st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 8: Bulk CSV Recovery Mode
+# ─────────────────────────────────────────────────────────────────────────────
+with tab8:
+    st.markdown("### 📁 Bulk Recovery Tool")
+    st.markdown("Upload a JSON or CSV backlog of failed transactions. LAZARUS will process them in bulk.")
+    
+    uploaded_file = st.file_uploader("Upload failed transactions (JSON)", type=["json"])
+    if uploaded_file is not None:
+        try:
+            bulk_data = json.load(uploaded_file)
+            st.success(f"Loaded {len(bulk_data)} transactions.")
             
-    if chat_prompt := st.chat_input("E.g., I don't get paid until Friday"):
-        st.session_state.chat_messages.append({"role": "user", "content": chat_prompt})
-        with st.chat_message("user"):
-            st.markdown(chat_prompt)
-            
-        with st.chat_message("assistant"):
-            response_placeholder = st.empty()
-            full_response = ""
-            for chunk in st.session_state.negotiator.send_message(chat_prompt):
-                full_response += chunk
-                # Live preview replacement while streaming
-                display_text = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
-                display_text = display_text.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
-                response_placeholder.markdown(display_text + "▌")
-            
-            # Final clean replacement
-            full_response = full_response.replace("[LINK_GENERATED]", "[🔗 Click here to complete payment](https://rzp.io/i/demo)")
-            full_response = full_response.replace("[BRIDGE_CREATED_25_75]", "🤝 **[Liquidity Bridge Created: Click to pay 25% today]**(https://rzp.io/i/bridge_demo)")
-            response_placeholder.markdown(full_response)
-            
-        st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
+            if st.button("🚀 Process Bulk Backlog"):
+                from agent import LazarusAgent
+                import time
+                agent = LazarusAgent()
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                results = []
+                for i, txn in enumerate(bulk_data):
+                    status_text.text(f"Processing {txn.get('txn_id')}... ({i+1}/{len(bulk_data)})")
+                    res = agent.process(txn, verbose=False, shadow_mode=False)
+                    results.append(res)
+                    progress_bar.progress((i + 1) / len(bulk_data))
+                    time.sleep(0.1) # UI delay
+                
+                status_text.text("Bulk processing complete.")
+                st.balloons()
+                
+                st.markdown("#### Bulk Recovery Results")
+                df_res = pd.DataFrame(results)
+                st.dataframe(df_res[["txn_id", "archetype", "proposed_action", "gate_verdict", "outcome"]], use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"Error parsing file: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Footer

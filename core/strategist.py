@@ -213,9 +213,11 @@ class Strategist:
         arch_cfg = ARCHETYPES[archetype]
         variant = self._select_strategy_variant(archetype, transaction.get('risk_score', 0.0))
         
+        safe_txn = self._mask_pii(transaction)
+        
         prompt = f"""You are LAZARUS, a payment recovery AI. Analyze this failed payment and respond ONLY with valid JSON.
 
-TRANSACTION: ₹{transaction.get('amount_paise',0)/100:.2f} | {transaction.get('payment_method')} | {transaction.get('failure_code')}
+TRANSACTION: ₹{safe_txn.get('amount_paise',0)/100:.2f} | {safe_txn.get('payment_method')} | {safe_txn.get('failure_code')}
 ARCHETYPE: {archetype} — {arch_cfg['description']}
 CAUSAL FACTORS: {', '.join(coroner_result.get('causal_factors', []))}
 STRATEGY VARIANT: Adopt a "{variant}" tone/approach for the customer_message_hint.
@@ -245,20 +247,36 @@ Respond ONLY with this JSON (no markdown fences):
             print(f"  [!] Stream failed ({err_msg}), using fallback")
             yield "", self._fallback(archetype, transaction)
 
+    def _mask_pii(self, txn: dict) -> dict:
+        """SOC2 Compliance: Redacts sensitive PII before passing to LLM."""
+        masked = txn.copy()
+        if "buyer" in masked:
+            buyer = masked["buyer"].copy()
+            if "customer_id" in buyer:
+                buyer["customer_id"] = "[REDACTED_USER_HASH]"
+            if "email" in buyer:
+                buyer["email"] = "[REDACTED_EMAIL]"
+            masked["buyer"] = buyer
+        return masked
+
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
         arch_cfg = ARCHETYPES[archetype]
         variant = self._select_strategy_variant(archetype, txn.get('risk_score', 0.0))
         
+        # Security: Redact PII
+        safe_txn = self._mask_pii(txn)
+        print("       ↳ [SOC2] PII Redacted for LLM Inference")
+        
         prompt = f"""You are LAZARUS, an expert payment recovery strategist.
 
 TRANSACTION CONTEXT:
-- Amount: ₹{txn.get('amount_paise', 0) / 100:.2f}
-- Method: {txn.get('payment_method')}
-- Error Code: {txn.get('failure_code')}
-- Failure time: {txn.get('failure_time')}
-- First-time buyer: {txn.get('buyer', {}).get('is_first_time_buyer', False)}
-- Prior failures (7d): {txn.get('buyer', {}).get('prior_failures_7d', 0)}
+- Amount: ₹{safe_txn.get('amount_paise', 0) / 100:.2f}
+- Method: {safe_txn.get('payment_method')}
+- Error Code: {safe_txn.get('failure_code')}
+- Failure time: {safe_txn.get('failure_time')}
+- First-time buyer: {safe_txn.get('buyer', {}).get('is_first_time_buyer', False)}
+- Prior failures (7d): {safe_txn.get('buyer', {}).get('prior_failures_7d', 0)}
 
 CORONER DIAGNOSIS:
 - Archetype: {archetype} — {arch_cfg['description']}

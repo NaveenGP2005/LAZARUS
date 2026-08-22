@@ -246,7 +246,6 @@ Respond ONLY with this JSON (no markdown fences):
             err_msg = str(e).encode('ascii', 'ignore').decode('ascii')
             print(f"  [!] Stream failed ({err_msg}), using fallback")
             yield "", self._fallback(archetype, transaction)
-
     def _mask_pii(self, txn: dict) -> dict:
         """SOC2 Compliance: Redacts sensitive PII before passing to LLM."""
         masked = txn.copy()
@@ -259,6 +258,21 @@ Respond ONLY with this JSON (no markdown fences):
             masked["buyer"] = buyer
         return masked
 
+    def _get_rl_success_examples(self, archetype: str) -> str:
+        """Fetches past successful prompts for this archetype to simulate RL Few-Shot learning."""
+        try:
+            import sqlite3
+            from config import DB_PATH
+            with sqlite3.connect(DB_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT proposed_action FROM lazarus_audit WHERE archetype = ? AND outcome = 'SUCCESS_PAID' LIMIT 2", (archetype,))
+                rows = cursor.fetchall()
+                if not rows:
+                    return "No prior RL data available."
+                return "Past Successful Approaches (Use these as inspiration):\\n- " + "\\n- ".join([r[0] for r in rows])
+        except Exception:
+            return "No prior RL data available."
+
     def _call_gemini(self, txn: dict, coroner: dict, archetype: str) -> dict:
         """Call Gemini Flash with a structured prompt."""
         arch_cfg = ARCHETYPES[archetype]
@@ -267,6 +281,9 @@ Respond ONLY with this JSON (no markdown fences):
         # Security: Redact PII
         safe_txn = self._mask_pii(txn)
         print("       ↳ [SOC2] PII Redacted for LLM Inference")
+        
+        # RL Feedback loop
+        rl_context = self._get_rl_success_examples(archetype)
         
         prompt = f"""You are LAZARUS, an expert payment recovery strategist.
 
@@ -290,6 +307,9 @@ ALLOWED RECOVERY ACTIONS FOR THIS ARCHETYPE:
 
 STRATEGY INSTRUCTION:
 Adopt a "{variant}" tone/approach for the customer_message_hint. If offering a Liquidity Bridge, suggest paying 25% today and 75% later.
+
+RL FEEDBACK MEMORY:
+{rl_context}
 
 Your task: Generate a precise recovery playbook. Be concise. The compliance gate will decide if this executes.
 

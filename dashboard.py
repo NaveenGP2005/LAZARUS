@@ -223,7 +223,7 @@ if has_audit and has_batch:
         </div>
         <div class="metric-card" style="flex: 1; min-width: 200px;">
             <div class="metric-lbl">Total Value at Risk</div>
-            <div class="metric-val">₹{batch["baseline"]["total_amount_inr"]:,.0f}</div>
+            <div class="metric-val">₹{batch["baseline"]["total_amount_paise"] / 100:,.0f}</div>
             <div class="metric-delta-pos">{total} failed transactions</div>
         </div>
         <div class="metric-card" style="flex: 1; min-width: 200px;">
@@ -242,7 +242,7 @@ if has_audit and has_batch:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🔬 Coroner's Report",
     "📊 Recovery Dashboard",
     "🧮 Counterfactual Comparison",
@@ -250,7 +250,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎮 Live Sandbox",
     "🏢 Merchant Intelligence",
     "💬 Chat Simulator",
-    "📁 Bulk Recovery"
+    "📁 Bulk Recovery",
+    "🛡️ Dispute Agent",
+    "🛒 Checkout Simulator"
 ])
 
 # ──────────────────────────────────────────────────────────
@@ -715,20 +717,27 @@ with tab7:
         st.info("Change parameters to see how the AI dynamically alters its negotiation strategy.")
         sim_arch = st.selectbox("Failure Archetype", ["empty_vault", "hesitant_hand", "frozen_gate", "limit_breaker"], index=0)
         sim_amt = st.number_input("Transaction Amount (₹)", min_value=100, max_value=100000, value=5000, step=500)
+        voice_mode = st.toggle("🎙️ Enable Voice AI Simulation", value=False)
         
-        # Force re-init if they click restart or change archetype
-        if st.button("🔄 Restart Chat Session") or "chat_messages" not in st.session_state or st.session_state.get("sim_arch") != sim_arch:
+        # Force re-init if they click restart or change archetype or voice mode
+        if st.button("🔄 Restart Chat Session") or "chat_messages" not in st.session_state or st.session_state.get("sim_arch") != sim_arch or st.session_state.get("voice_mode") != voice_mode:
             st.session_state.sim_arch = sim_arch
+            st.session_state.voice_mode = voice_mode
             from core.negotiator import NegotiatorAgent
-            st.session_state.negotiator = NegotiatorAgent(context={"amount_inr": sim_amt, "archetype": sim_arch})
             
-            # Dynamic first message based on archetype
-            if sim_arch == "empty_vault":
-                intro = f"Hi there! I noticed your payment for ₹{sim_amt} was declined due to insufficient funds. Managing cashflow can be tricky—is there any way I can help structure this for you?"
-            elif sim_arch == "hesitant_hand":
-                intro = f"Hi there! Your ₹{sim_amt} order is saved. I'm here if you have any questions or concerns about completing your purchase!"
+            mode_str = "voice" if voice_mode else "chat"
+            st.session_state.negotiator = NegotiatorAgent(context={"amount_inr": sim_amt, "archetype": sim_arch, "mode": mode_str})
+            
+            # Dynamic first message based on archetype and mode
+            if voice_mode:
+                intro = f"📞 [LAZARUS Voice AI]: Hello! I'm calling from the billing department regarding a ₹{sim_amt} charge that didn't go through. Is this a good time to talk?"
             else:
-                intro = f"Hi! I see your ₹{sim_amt} payment didn't go through. Let me know if you need help resolving this."
+                if sim_arch == "empty_vault":
+                    intro = f"Hi there! I noticed your payment for ₹{sim_amt} was declined due to insufficient funds. Managing cashflow can be tricky—is there any way I can help structure this for you?"
+                elif sim_arch == "hesitant_hand":
+                    intro = f"Hi there! Your ₹{sim_amt} order is saved. I'm here if you have any questions or concerns about completing your purchase!"
+                else:
+                    intro = f"Hi! I see your ₹{sim_amt} payment didn't go through. Let me know if you need help resolving this."
                 
             st.session_state.chat_messages = [{"role": "assistant", "content": intro}]
             st.rerun()
@@ -799,6 +808,108 @@ with tab8:
                 
         except Exception as e:
             st.error(f"Error parsing file: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 9: Dispute Manager (Chargeback Agent)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab9:
+    st.markdown("### 🛡️ Automated Chargeback Defense Agent")
+    st.markdown("Simulate Razorpay `chargeback.created` webhook. LAZARUS autonomously dips into the merchant DB to gather evidence and generates a professional defense document.")
+    
+    col_d1, col_d2 = st.columns([1, 2])
+    with col_d1:
+        st.markdown("#### Dispute Details")
+        dispute_id = st.text_input("Dispute ID", value="disp_Q9j8Xm2")
+        dispute_amount = st.number_input("Dispute Amount (₹)", value=15000)
+        dispute_reason = st.selectbox("Reason Code", ["Product not delivered", "Unauthorized transaction", "Product unacceptable"])
+        
+        if st.button("🚨 Simulate Chargeback Webhook"):
+            with st.spinner("LAZARUS is gathering evidence and generating defense..."):
+                from core.chargeback import ChargebackAgent
+                import time
+                agent = ChargebackAgent()
+                time.sleep(1) # Simulate DB lookup latency
+                
+                payload = {
+                    "dispute_id": dispute_id,
+                    "amount_inr": dispute_amount,
+                    "reason_code": dispute_reason,
+                    "customer_id": "CUST_SECRET_999"
+                }
+                st.session_state.dispute_result = agent.generate_defense(payload)
+                
+    with col_d2:
+        st.markdown("#### Generated Defense File")
+        if "dispute_result" in st.session_state:
+            res = st.session_state.dispute_result
+            if res["status"] == "error":
+                st.error(res["message"])
+            else:
+                st.success("Defense Document Generated Successfully!")
+                
+                st.markdown("**1. Evidence Extracted from Internal Systems:**")
+                st.json(res["evidence_gathered"])
+                
+                st.markdown("**2. AI Generated Legal Defense (Ready for API Submission):**")
+                st.markdown(f"<div style='background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 8px; font-family: monospace; font-size: 0.9rem; line-height: 1.6;'>{res['defense_document'].replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
+        else:
+            st.info("Click 'Simulate Chargeback Webhook' to generate defense.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 10: Checkout Simulator (Pre-Emptive Intervention)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab10:
+    st.markdown("### 🛒 Pre-Emptive Checkout Intervention")
+    st.markdown("Simulate tracking user behavior on a checkout page. If the AI detects 'hesitation', it triggers an intervention *before* the user clicks pay.")
+    
+    # Initialize hesitation score
+    if "hesitation_score" not in st.session_state:
+        st.session_state.hesitation_score = 0
+        
+    c_checkout, c_monitor = st.columns([2, 1])
+    
+    with c_checkout:
+        st.markdown("#### ACME Corp — Premium Subscription")
+        st.markdown("**Amount Due:** ₹12,000 / year")
+        
+        st.markdown("---")
+        
+        st.button("💳 Select Credit Card", on_click=lambda: st.session_state.update(hesitation_score=st.session_state.hesitation_score + 10))
+        st.button("📱 Select UPI", on_click=lambda: st.session_state.update(hesitation_score=st.session_state.hesitation_score + 10))
+        st.button("Hover: View Terms & Conditions", on_click=lambda: st.session_state.update(hesitation_score=st.session_state.hesitation_score + 15))
+        st.button("Hover: Return to Cart", on_click=lambda: st.session_state.update(hesitation_score=st.session_state.hesitation_score + 25))
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # If hesitation > 40, trigger intervention
+        if st.session_state.hesitation_score >= 40:
+            st.warning("🚨 [LAZARUS PRE-EMPTIVE TRIGGER FIRED]")
+            st.markdown("""
+            <div style="background: rgba(167,139,250,0.1); border: 2px solid #a78bfa; padding: 1.5rem; border-radius: 12px; text-align: center;">
+                <h3 style="color: #a78bfa; margin-top: 0;">Wait! Don't leave yet.</h3>
+                <p>We noticed you might be hesitating. Would you like to split this ₹12,000 payment?</p>
+                <button style="background: #a78bfa; color: #fff; border: none; padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                    Pay ₹3,000 today (Liquidity Bridge)
+                </button>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("Reset Checkout Simulator"):
+                st.session_state.hesitation_score = 0
+                st.rerun()
+        else:
+            st.button("✅ Complete Payment", type="primary")
+
+    with c_monitor:
+        st.markdown("#### LAZARUS Behavior Tracking")
+        score = st.session_state.hesitation_score
+        
+        # Progress bar color logic
+        color = "normal" if score < 40 else "error"
+        st.progress(min(score / 40.0, 1.0))
+        
+        st.markdown(f"**Hesitation Score: {score}/40**")
+        st.caption("Each button click above simulates a mouse hover or toggle action on the frontend. If the user toggles payment methods or hovers over the exit button, the score increases.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Footer

@@ -40,7 +40,9 @@ class NegotiatorAgent:
     def _build_system_prompt(self) -> str:
         amt = self.context.get("amount_inr", 5000)
         arch = self.context.get("archetype", "hesitant_hand")
-        return f"""You are the LAZARUS Negotiator, a helpful, empathetic payment recovery assistant for a merchant.
+        mode = self.context.get("mode", "chat")
+        
+        base_prompt = f"""You are the LAZARUS Negotiator, a helpful, empathetic payment recovery assistant for a merchant.
 Your goal is to help the customer complete their failed payment of ₹{amt}.
 The failure cause was: {arch}.
 
@@ -52,6 +54,13 @@ RULES:
 5. If you reach an agreement on the Liquidity Bridge (25% today), end your message with the exact string: [BRIDGE_CREATED_25_75]
 6. If you reach a standard agreement (full amount), end your message with: [LINK_GENERATED]
 """
+        if mode == "voice":
+            base_prompt += """
+7. [VOICE MODE]: You are simulating a live phone call via Vapi.ai. Format your response exactly like a phone call transcript. 
+Start your response with: `📞 [LAZARUS Voice AI]: ` 
+Speak conversationally, with natural pauses, as if you are on the phone.
+"""
+        return base_prompt
 
     def send_message(self, message: str):
         """Yields streaming response chunks."""
